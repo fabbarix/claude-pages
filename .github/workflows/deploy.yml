@@ -31,9 +31,8 @@ jobs:
         run: npm ci
 
       - name: Build
-        # Pages serves the site from /<repo>/, so Vite needs a matching base.
-        env:
-          BASE_PATH: /${{ github.event.repository.name }}/
+        # base is "/" in vite.config.js: the custom domain in public/CNAME
+        # serves this site at the domain root, not under /<repo>/.
         run: npm run build
 
       - name: Add SPA + Jekyll guards
