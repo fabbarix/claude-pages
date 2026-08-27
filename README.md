@@ -39,6 +39,23 @@ To publish at `fabbarix.github.io/claude-pages/` instead, drop `public/CNAME`
 and set Vite's `base` to `/claude-pages/` — a project site without a custom
 domain lives under `/<repo>/`, and root-absolute assets would 404 there.
 
+## Who is scoring on which phone
+
+Each device keeps a random `deviceId` and remembers which of the two scorers it
+is set to. That claim travels in the transfer payload, so after a sync each
+phone knows which slot the other one owns and marks it "other phone": switching
+into it takes a confirmation rather than a tap. If both phones turn out to be
+set to the same person, the receive screen says so and offers to move this
+phone to the other slot before merging.
+
+It is a guard rail, not a lock — taking over a slot is always one confirmation
+away, so a flat battery on the other phone can never strand you. Solo use is
+untouched: with no partner known, switching is free.
+
+The wire format is versioned (`EVS1`/`EVS2`/`EVS3`), and each version records
+how many header fields precede the cars, so codes from older builds still
+import.
+
 ## The PDF report
 
 The Results tab has a **Download PDF** button. `src/pdf/writer.js` is a small

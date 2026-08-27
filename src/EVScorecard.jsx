@@ -857,10 +857,21 @@ function fixCar(c) {
   };
 }
 
+/* Wire format versions. Each bumps only when the head grows, so older codes
+   stay readable: `head` is how many fields precede the cars. */
+const WIRE = {
+  EVS1: { head: 4, keys: OLD_ORDER, req: false, claim: false },
+  EVS2: { head: 5, keys: ORDER, req: true, claim: false },
+  EVS3: { head: 6, keys: ORDER, req: true, claim: true },
+};
+
 function pack(state, withNotes) {
-  const head = ["EVS2", esc(state.names.a), esc(state.names.b),
+  const head = ["EVS3", esc(state.names.a), esc(state.names.b),
     `${state.weights.drive}${state.weights.live}${state.weights.tech}${state.weights.gut}`,
-    KITIDS.map((k) => state.req[k] || 0).join("")];
+    KITIDS.map((k) => state.req[k] || 0).join(""),
+    /* Which slot this device is scoring, and who it is. The other device uses
+       it to lock that slot so nobody rates their partner by accident. */
+    state.claim && state.claim.deviceId ? `${state.claim.slot}:${esc(state.claim.deviceId)}` : ""];
   const cars = state.cars.map((c) => {
     const sc = (w) => ORDER.map((k) => (typeof c.scores[w][k] === "number" ? c.scores[w][k] : 0)).join("");
     return [
@@ -877,19 +888,24 @@ function pack(state, withNotes) {
 
 function unpack(str) {
   const parts = str.split("|");
-  const v2 = parts[0] === "EVS2";
-  if (!v2 && parts[0] !== "EVS1") throw new Error("That code isn't from this scorecard.");
-  const keys = v2 ? ORDER : OLD_ORDER;
+  const wire = WIRE[parts[0]];
+  if (!wire) throw new Error("That code isn't from this scorecard.");
+  const keys = wire.keys;
   const w = parts[3] || "3323";
-  const reqStr = v2 ? parts[4] || "" : "";
+  const reqStr = wire.req ? parts[4] || "" : "";
   const state = {
     names: { a: unesc(parts[1]) || "Me", b: unesc(parts[2]) || "Partner" },
     weights: { drive: +w[0] || 3, live: +w[1] || 3, tech: +w[2] || 2, gut: +w[3] || 3 },
     req: {},
+    claim: null,
     cars: [],
   };
+  if (wire.claim && parts[5]) {
+    const [slot, id] = parts[5].split(":");
+    if ((slot === "a" || slot === "b") && id) state.claim = { slot, deviceId: unesc(id) };
+  }
   KITIDS.forEach((k, i) => { const n = +reqStr[i]; if (n === 1 || n === 2) state.req[k] = n; });
-  for (let i = v2 ? 5 : 4; i < parts.length; i++) {
+  for (let i = wire.head; i < parts.length; i++) {
     if (!parts[i]) continue;
     const f = parts[i].split("~");
     const car = blankCar(unesc(f[0]));
@@ -1456,7 +1472,7 @@ function Sender({ state }) {
   );
 }
 
-function Receiver({ onImport }) {
+function Receiver({ who, names, onImport }) {
   const videoRef = useRef(null);
   const [frames, setFrames] = useState({});
   const [meta, setMeta] = useState(null);
@@ -1566,6 +1582,16 @@ function Receiver({ onImport }) {
 
   if (preview) {
     const ratings = preview.cars.reduce((s, c) => s + countDone(c, "a") + countDone(c, "b"), 0);
+    /* Both devices set to the same person: resolve that before merging, or the
+       two of you keep rating one slot and leave the other empty. */
+    const clash = preview.claim && preview.claim.slot === who;
+    const otherSlot = who === "a" ? "b" : "a";
+    const nameOf = (k) => preview.names[k] || names[k] || (k === "a" ? "Me" : "Partner");
+    const finish = (mode, opts) => {
+      stopRef.current && stopRef.current();
+      onImport(preview, mode, opts);
+    };
+
     return (
       <div className="xfer">
         <div className="previewbox">
@@ -1579,12 +1605,30 @@ function Receiver({ onImport }) {
             ))}
           </ul>
         </div>
-        <button className="btn solid wide" onClick={() => { stopRef.current && stopRef.current(); onImport(preview, "merge"); }}>
-          Merge in — nothing of mine is overwritten
-        </button>
-        <button className="btn wide" onClick={() => { stopRef.current && stopRef.current(); onImport(preview, "replace"); }}>
-          Replace my copy with theirs
-        </button>
+
+        {clash ? (
+          <>
+            <div className="notice warn">
+              Both phones are set to <b>{nameOf(who)}</b>. Pick who this phone is before merging.
+            </div>
+            <button className="btn solid wide"
+              onClick={() => finish("merge", { moveMeTo: otherSlot })}>
+              This phone is {nameOf(otherSlot)} — switch me and merge
+            </button>
+            <button className="btn wide" onClick={() => finish("merge", {})}>
+              Keep me as {nameOf(who)} and merge anyway
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="btn solid wide" onClick={() => finish("merge", {})}>
+              Merge in — nothing of mine is overwritten
+            </button>
+            <button className="btn wide" onClick={() => finish("replace", {})}>
+              Replace my copy with theirs
+            </button>
+          </>
+        )}
         <button className="btn ghost wide" onClick={() => { setPreview(null); setFrames({}); setMeta(null); }}>Cancel</button>
       </div>
     );
@@ -1634,7 +1678,7 @@ function Receiver({ onImport }) {
   );
 }
 
-function Transfer({ state, onImport }) {
+function Transfer({ state, who, names, onImport }) {
   const [mode, setMode] = useState(null);
   return (
     <div className="pane">
@@ -1653,7 +1697,7 @@ function Transfer({ state, onImport }) {
         </button>
       </div>
       {mode === "send" && <Sender state={state} />}
-      {mode === "recv" && <Receiver onImport={onImport} />}
+      {mode === "recv" && <Receiver who={who} names={names} onImport={onImport} />}
     </div>
   );
 }
@@ -1666,6 +1710,11 @@ export default function EVScorecard() {
   const [weights, setWeights] = useState({ drive: 3, live: 3, tech: 2, gut: 3 });
   const [req, setReq] = useState({});
   const [who, setWho] = useState("a");
+  /* This device's identity, and what it last learned about the other one.
+     `partner` is set only by a sync, and only ever names the slot this device
+     is NOT scoring — so `who` is never itself locked. */
+  const [deviceId, setDeviceId] = useState("");
+  const [partner, setPartner] = useState(null);
   const [view, setView] = useState("garage");
   const [openCar, setOpenCar] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -1685,7 +1734,10 @@ export default function EVScorecard() {
            restored here but deliberately kept out of the transfer payload:
            importing someone else's card should not flip who you are. */
         if (d.who === "a" || d.who === "b") setWho(d.who);
+        if (d.deviceId) setDeviceId(d.deviceId);
+        if (d.partner && d.partner.slot && d.partner.deviceId) setPartner(d.partner);
       } catch (e) { /* first run */ }
+      setDeviceId((id) => id || uid());
       setLoaded(true);
     })();
   }, []);
@@ -1695,13 +1747,34 @@ export default function EVScorecard() {
     if (first.current) { first.current = false; return; }
     const t = setTimeout(async () => {
       try {
-        await window.storage.set(STORE_KEY, JSON.stringify({ cars, names, weights, req, who }));
+        await window.storage.set(STORE_KEY,
+          JSON.stringify({ cars, names, weights, req, who, deviceId, partner }));
         setStatus("Saved");
         setTimeout(() => setStatus(""), 1400);
       } catch (e) { setStatus("Not saved"); }
     }, 600);
     return () => clearTimeout(t);
-  }, [cars, names, weights, req, who, loaded]);
+  }, [cars, names, weights, req, who, deviceId, partner, loaded]);
+
+  /* A slot is locked when the last sync said the other device is scoring it.
+     Never a dead end: taking it over is one confirmation away, so a flat
+     battery on the other phone cannot strand you. */
+  const lockedSlot = partner && partner.deviceId !== deviceId ? partner.slot : null;
+
+  const claimSlot = (slot) => {
+    if (slot === who) return;
+    if (slot === lockedSlot) {
+      const label = names[slot] || (slot === "a" ? "Me" : "Partner");
+      const ok = confirm(
+        `${label} is being scored on the other phone.\n\n` +
+        "Score as them on this phone too? Both of you rating the same person is " +
+        "usually a mistake, and whichever phone syncs last will not overwrite the other.",
+      );
+      if (!ok) return;
+      setPartner(null);           // taken over: the old claim no longer holds
+    }
+    setWho(slot);
+  };
 
   const patch = useCallback((id, fn) =>
     setCars((cs) => cs.map((c) => (c.id === id ? fn(structuredClone(c)) : c))), []);
@@ -1714,7 +1787,17 @@ export default function EVScorecard() {
   };
   const car = cars.find((c) => c.id === openCar);
 
-  const handleImport = (incoming, mode) => {
+  const handleImport = (incoming, mode, opts = {}) => {
+    /* Resolve slot ownership before touching the scores. */
+    if (opts.moveMeTo === "a" || opts.moveMeTo === "b") setWho(opts.moveMeTo);
+    const mySlot = opts.moveMeTo || who;
+    const claim = incoming.claim;
+    if (claim && claim.deviceId && claim.deviceId !== deviceId) {
+      /* Only ever record a claim on the slot this device is not scoring, so
+         `who` can never end up locked against its own user. */
+      setPartner(claim.slot === mySlot ? null : claim);
+    }
+
     if (mode === "replace") {
       setCars(incoming.cars);
       setNames(incoming.names);
@@ -1744,11 +1827,19 @@ export default function EVScorecard() {
           <span className="saved">{status}</span>
         </div>
         <div className="whorow">
-          {["a", "b"].map((k) => (
-            <button key={k} className={"whobtn" + (who === k ? " active" : "")}
-              style={who === k ? { background: COL[k], borderColor: COL[k] } : undefined}
-              onClick={() => setWho(k)}>{names[k] || (k === "a" ? "Me" : "Partner")}</button>
-          ))}
+          {["a", "b"].map((k) => {
+            const label = names[k] || (k === "a" ? "Me" : "Partner");
+            const locked = lockedSlot === k;
+            return (
+              <button key={k} className={"whobtn" + (who === k ? " active" : "") + (locked ? " locked" : "")}
+                style={who === k ? { background: COL[k], borderColor: COL[k] } : undefined}
+                aria-label={locked ? `${label} — being scored on the other phone` : undefined}
+                onClick={() => claimSlot(k)}>
+                {label}
+                {locked && <span className="wholock" aria-hidden="true">other phone</span>}
+              </button>
+            );
+          })}
         </div>
       </header>
 
@@ -1775,7 +1866,9 @@ export default function EVScorecard() {
         ) : view === "results" ? (
           <Results cars={cars} names={names} weights={weights} req={req} />
         ) : (
-          <Transfer state={{ cars, names, weights, req }} onImport={handleImport} />
+          <Transfer
+            state={{ cars, names, weights, req, claim: { slot: who, deviceId } }}
+            who={who} names={names} onImport={handleImport} />
         )}
     </div>
   );
@@ -1800,6 +1893,8 @@ const CSS = `
 .whorow{display:flex;gap:8px;margin-top:10px}
 .whobtn{flex:1;padding:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:2px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .whobtn.active{color:#fff}
+.whobtn.locked{color:var(--mut);border-style:dashed}
+.wholock{display:block;font-size:9px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#A6AEB4;margin-top:2px}
 .tabs{display:flex;border-bottom:1px solid var(--line);background:var(--bg);position:sticky;top:88px;z-index:4}
 .tab{flex:1;padding:11px 4px;border:0;background:none;color:var(--mut);font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:inherit}
 .tab.on{color:var(--ink);border-bottom-color:var(--ink)}
