@@ -1479,9 +1479,12 @@ function Receiver({ onImport }) {
         });
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         const v = videoRef.current;
-        if (!v) return;
+        if (!v) { setCamState("failed"); return; }
         v.srcObject = stream;
-        await v.play();
+        /* Autoplay can be refused even with muted + playsInline. That is not a
+           permission problem, so don't let it reach the catch below and get
+           reported as one — frames still arrive once the element is shown. */
+        try { await v.play(); } catch (_) { /* keep going */ }
         const native = typeof window.BarcodeDetector !== "undefined"
           ? new window.BarcodeDetector({ formats: ["qr_code"] })
           : null;
@@ -1551,12 +1554,14 @@ function Receiver({ onImport }) {
 
   return (
     <div className="xfer">
-      {(camState === "live" || camState === "live-js") && (
-        <div className="camwrap">
-          <video ref={videoRef} className="cam" muted playsInline />
-          <div className="reticle" />
-        </div>
-      )}
+      {/* Mounted from the first render, hidden until the stream arrives: the
+          effect needs videoRef.current to exist by the time getUserMedia
+          resolves, and rendering this only once live would never let it. */}
+      <div className="camwrap"
+        style={camState === "live" || camState === "live-js" ? undefined : { display: "none" }}>
+        <video ref={videoRef} className="cam" muted playsInline />
+        <div className="reticle" />
+      </div>
       {camState === "starting" && <div className="empty">Asking for the camera…</div>}
       {camState === "live-js" && (
         <p className="sub center">Point at the other device. Fill the frame with one code at a time.</p>
