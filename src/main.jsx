@@ -20,3 +20,13 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
 }
+
+/* The report generator is a separate chunk so it costs nothing at first paint,
+   but a chunk that has never been fetched is not in the offline cache either.
+   Pull it in once the page is idle, so the report still builds with no signal.
+   Failure is fine: clicking the button fetches it the ordinary way. */
+if (import.meta.env.PROD) {
+  const warm = () => import("./pdf/report.js").catch(() => {});
+  if ("requestIdleCallback" in window) window.requestIdleCallback(warm, { timeout: 6000 });
+  else window.addEventListener("load", () => setTimeout(warm, 2500));
+}

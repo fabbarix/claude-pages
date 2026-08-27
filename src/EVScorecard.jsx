@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 
 /* ═══ criteria ═══════════════════════════════════════════════ */
 
-const GROUPS = [
+export const GROUPS = [
   {
     id: "drive",
     name: "Driving",
@@ -56,7 +56,7 @@ const GROUPS = [
   },
 ];
 
-const FACTS = [
+export const FACTS = [
   { id: "price", label: "Price as tested", unit: "", better: "low" },
   { id: "range", label: "Claimed range", unit: "km", better: "high" },
   { id: "real", label: "Real-world est.", unit: "km", better: "high" },
@@ -65,7 +65,7 @@ const FACTS = [
   { id: "boot", label: "Boot volume", unit: "L", better: "high" },
 ];
 
-const KIT = [
+export const KIT = [
   ["vent", "Ventilated / heated front seats"],
   ["rearheat", "Heated rear seats"],
   ["wheel", "Heated steering wheel"],
@@ -76,15 +76,15 @@ const KIT = [
 ];
 
 /* missing kit costs points off the final 0–100 score */
-const PENALTY = { 0: 0, 1: 3, 2: 8 };      // don't care / nice to have / must have
-const REQLABEL = { 0: "—", 1: "Nice", 2: "Must" };
+export const PENALTY = { 0: 0, 1: 3, 2: 8 };      // don't care / nice to have / must have
+export const REQLABEL = { 0: "—", 1: "Nice", 2: "Must" };
 
-const ORDER = GROUPS.flatMap((g) => g.items.map(([id]) => id));
+export const ORDER = GROUPS.flatMap((g) => g.items.map(([id]) => id));
 const OLD_ORDER = ["ride","accel","steer","regen","quiet","brakes","seatf","seatr","boot","vis","park","access","screen","buttons","mats","chargeux","adas","storage","ext","int","want"];
-const FACTIDS = FACTS.map((f) => f.id);
-const KITIDS = KIT.map(([id]) => id);
+export const FACTIDS = FACTS.map((f) => f.id);
+export const KITIDS = KIT.map(([id]) => id);
 const STORE_KEY = "ev-scorecard-v1";
-const COL = { a: "#3A2FD6", b: "#C2255C" };
+export const COL = { a: "#3A2FD6", b: "#C2255C" };
 
 /* ═══ QR encoder (error correction level M) ══════════════════
    Matrices verified byte-identical to a reference implementation
@@ -965,12 +965,12 @@ function mergeGaps(localCars, incoming) {
 
 /* ═══ scoring maths ══════════════════════════════════════════ */
 
-function groupAvg(car, who, gid) {
+export function groupAvg(car, who, gid) {
   const vals = GROUPS.find((g) => g.id === gid).items
     .map(([id]) => car.scores[who][id]).filter((v) => typeof v === "number");
   return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
 }
-function rawFor(car, who, weights) {
+export function rawFor(car, who, weights) {
   let num = 0, den = 0;
   GROUPS.forEach((g) => {
     const a = groupAvg(car, who, g.id);
@@ -978,25 +978,25 @@ function rawFor(car, who, weights) {
   });
   return den ? (num / den / 5) * 100 : null;
 }
-function kitHit(car, req) {
+export function kitHit(car, req) {
   const missing = KITIDS.filter((k) => (req[k] || 0) > 0 && car.kit[k] === 2);
   const unknown = KITIDS.filter((k) => (req[k] || 0) > 0 && !car.kit[k]);
   const points = missing.reduce((s, k) => s + PENALTY[req[k]], 0);
   return { points, missing, unknown, blocked: missing.some((k) => req[k] === 2) };
 }
-function totalFor(car, who, weights, req) {
+export function totalFor(car, who, weights, req) {
   const raw = rawFor(car, who, weights);
   if (raw === null) return null;
   return Math.max(0, raw - kitHit(car, req).points);
 }
-function combined(car, weights, req) {
+export function combined(car, weights, req) {
   const a = totalFor(car, "a", weights, req), b = totalFor(car, "b", weights, req);
   if (a === null && b === null) return null;
   if (a === null) return b;
   if (b === null) return a;
   return (a + b) / 2;
 }
-const countDone = (car, who) => ORDER.filter((id) => typeof car.scores[who][id] === "number").length;
+export const countDone = (car, who) => ORDER.filter((id) => typeof car.scores[who][id] === "number").length;
 
 /* ═══ shared bits ════════════════════════════════════════════ */
 
@@ -1245,6 +1245,43 @@ function Score({ car, who, names, weights, req, patch, onRemove }) {
   );
 }
 
+/* The PDF generator is pulled in on demand: it is dead weight for anyone who
+   never asks for a report, and importing it eagerly would make this module and
+   the report module import each other at start-up. */
+function ReportButton({ cars, names, weights, req }) {
+  const [phase, setPhase] = useState("idle");
+
+  const run = async () => {
+    setPhase("working");
+    try {
+      const { downloadReport } = await import("./pdf/report.js");
+      await new Promise((r) => setTimeout(r, 0));   // let the label paint first
+      downloadReport({ cars, names, weights, req });
+      setPhase("done");
+      setTimeout(() => setPhase("idle"), 3000);
+    } catch (e) {
+      setPhase("error");
+      setTimeout(() => setPhase("idle"), 5000);
+    }
+  };
+
+  return (
+    <div className="reportbar">
+      <div className="reportcopy">
+        <span className="reporttitle">Full report</span>
+        <span className="reportsub">
+          Overview, category spiderwebs and every score side by side, as a PDF.
+        </span>
+      </div>
+      <button className="btn solid" onClick={run} disabled={phase === "working"}>
+        {phase === "working" ? "Building…"
+          : phase === "done" ? "Downloaded"
+            : phase === "error" ? "Failed — retry" : "Download PDF"}
+      </button>
+    </div>
+  );
+}
+
 function Results({ cars, names, weights, req }) {
   const ranked = [...cars].filter((c) => combined(c, weights, req) !== null)
     .sort((x, y) => combined(y, weights, req) - combined(x, weights, req));
@@ -1266,6 +1303,7 @@ function Results({ cars, names, weights, req }) {
 
   return (
     <div className="pane">
+      <ReportButton cars={cars} names={names} weights={weights} req={req} />
       <h3 className="h3">Standings</h3>
       <p className="sub">Weighted score out of 100, after equipment deductions.</p>
       {ranked.map((c, i) => {
@@ -1859,6 +1897,10 @@ const CSS = `
 .notecard{background:var(--card);border:1px solid var(--line);border-radius:3px;padding:12px;margin-bottom:10px}
 .notecar{font-size:14px;font-weight:600;margin-bottom:6px}
 .note{font-size:13.5px;line-height:1.55;margin:0 0 6px;color:#2B343C}
+.reportbar{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:3px;padding:13px 14px;margin-bottom:20px}
+.reportcopy{display:flex;flex-direction:column;gap:3px;min-width:0}
+.reporttitle{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.reportsub{font-size:12px;color:var(--mut);line-height:1.4}
 .modes{display:flex;gap:10px;margin-bottom:22px}
 .modebtn{flex:1;padding:16px 10px;border:1px solid var(--line);background:var(--card);border-radius:3px;font-size:13.5px;font-weight:600;color:var(--ink);cursor:pointer;font-family:inherit;line-height:1.4}
 .modebtn.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
@@ -1889,6 +1931,8 @@ const CSS = `
 .carlistn{font-family:ui-monospace,monospace;font-size:12px;color:var(--mut)}
 @media (prefers-reduced-motion:reduce){.app *{transition:none!important}}
 @media (max-width:420px){
+  .reportbar{flex-direction:column;align-items:stretch}
+  .reportbar .btn{width:100%}
   .factgrid{grid-template-columns:1fr}
   .kitrow{flex-direction:column;align-items:flex-start;gap:8px}
   .triple{width:100%}

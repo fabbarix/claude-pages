@@ -39,6 +39,33 @@ To publish at `fabbarix.github.io/claude-pages/` instead, drop `public/CNAME`
 and set Vite's `base` to `/claude-pages/` — a project site without a custom
 domain lives under `/<repo>/`, and root-absolute assets would 404 there.
 
+## The PDF report
+
+The Results tab has a **Download PDF** button. `src/pdf/writer.js` is a small
+PDF 1.4 writer and `src/pdf/report.js` lays the document out: the pages are
+real PDF content streams — vector paths and Type1 text — rather than a
+rendered page wrapped in a PDF, so the text is selectable and the charts stay
+sharp at any zoom. Nothing is rasterised and no font is embedded, which keeps a
+report to a few hundred KB.
+
+The document runs: a cover with the verdict, standings and method; a comparison
+page with a category spiderweb, per-category averages, facts side by side and
+where the two of you disagree; a page per car with its own spiderweb, facts,
+equipment and every criterion scored side by side with notes; and an appendix
+listing every split.
+
+Two limits worth knowing:
+
+- Only the base-14 fonts are used, so text is limited to what WinAnsi encodes —
+  Latin-1 plus smart quotes and dashes. Notes in other scripts come out as `?`.
+  Embedding a Unicode font would fix it at the cost of a much larger bundle.
+- A radar needs a value on every spoke, so a car (or a scorer) without a rating
+  in all four categories is named rather than plotted. Plotting an unrated
+  category as zero would claim something different from "not yet scored".
+
+The generator is a separate chunk, fetched when the page goes idle so the
+report still builds offline.
+
 ## Installing it as an app
 
 The site is a PWA: `public/manifest.webmanifest` plus the icons and
