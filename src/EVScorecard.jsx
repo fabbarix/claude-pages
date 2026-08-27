@@ -1681,6 +1681,10 @@ export default function EVScorecard() {
         if (d.names) setNames(d.names);
         if (d.weights) setWeights(d.weights);
         if (d.req) setReq(d.req);
+        /* Which of the two you are scoring as is a per-device choice, so it is
+           restored here but deliberately kept out of the transfer payload:
+           importing someone else's card should not flip who you are. */
+        if (d.who === "a" || d.who === "b") setWho(d.who);
       } catch (e) { /* first run */ }
       setLoaded(true);
     })();
@@ -1691,13 +1695,13 @@ export default function EVScorecard() {
     if (first.current) { first.current = false; return; }
     const t = setTimeout(async () => {
       try {
-        await window.storage.set(STORE_KEY, JSON.stringify({ cars, names, weights, req }));
+        await window.storage.set(STORE_KEY, JSON.stringify({ cars, names, weights, req, who }));
         setStatus("Saved");
         setTimeout(() => setStatus(""), 1400);
       } catch (e) { setStatus("Not saved"); }
     }, 600);
     return () => clearTimeout(t);
-  }, [cars, names, weights, req, loaded]);
+  }, [cars, names, weights, req, who, loaded]);
 
   const patch = useCallback((id, fn) =>
     setCars((cs) => cs.map((c) => (c.id === id ? fn(structuredClone(c)) : c))), []);
