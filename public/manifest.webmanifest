@@ -1,0 +1,58 @@
+{
+  "id": "/",
+  "name": "Test drive scorecard",
+  "short_name": "Scorecard",
+  "description": "Score test drives side by side, then hand the results to the other person over QR codes. Works with no signal.",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "background_color": "#EEF1F2",
+  "theme_color": "#EEF1F2",
+  "categories": [
+    "productivity",
+    "utilities",
+    "shopping"
+  ],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-cars.png",
+      "sizes": "412x915",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "The garage, ranked by weighted score"
+    },
+    {
+      "src": "/screenshot-results.png",
+      "sizes": "412x915",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Standings, facts side by side, and where you disagree"
+    }
+  ]
+}
